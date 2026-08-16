@@ -1,49 +1,55 @@
 """
-Game Price Tool - Version API PriceCharting
-Interface mobile-friendly + photos
+Game Price Tool - Version propre (Loose + CIB)
 """
 
 import streamlit as st
 import requests
 from urllib.parse import quote_plus
 
-# ======================
-# TOKEN
-# ======================
 PRICECHARTING_TOKEN = "5efe3fca0235950767def78da9d234cea9dbf13d"
 
 st.set_page_config(
-    page_title="Game Price Tool 🎮",
+    page_title="Game Price Tool",
     page_icon="🎮",
-    layout="centered",          # mieux pour mobile
+    layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# CSS pour rendre l'interface plus propre sur téléphone
+# Style propre
 st.markdown("""
 <style>
-    .stMetric {
-        background-color: #1e1e1e;
-        padding: 12px 8px;
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+        max-width: 640px;
+    }
+    h3 {
+        margin-bottom: 0.2rem !important;
+        font-size: 1.25rem !important;
+    }
+    .price-box {
+        background: #1c1c1c;
         border-radius: 10px;
+        padding: 14px 10px;
         text-align: center;
+        border: 1px solid #333;
     }
-    .stMetric label {
-        font-size: 0.85rem !important;
+    .price-label {
+        font-size: 0.8rem;
+        color: #aaa;
+        margin-bottom: 4px;
     }
-    .stMetric [data-testid="stMetricValue"] {
-        font-size: 1.3rem !important;
+    .price-value {
+        font-size: 1.4rem;
         font-weight: 700;
-    }
-    div[data-testid="stVerticalBlock"] > div {
-        gap: 0.6rem;
+        color: #fff;
     }
     .game-card {
-        border: 1px solid #333;
+        background: #161616;
+        border: 1px solid #2a2a2a;
         border-radius: 12px;
         padding: 16px;
-        margin-bottom: 16px;
-        background: #161616;
+        margin-bottom: 14px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -58,13 +64,21 @@ def get_eur_rate():
         return 0.92
 
 
-def cents_to_eur(cents, rate):
-    if cents is None:
+def cents_to_eur(value, rate):
+    if value is None:
         return None
     try:
-        return round(float(cents) / 100 * rate, 2)
+        return round(float(value) / 100 * rate, 2)
     except:
         return None
+
+
+def get_price(product, *keys):
+    """Essaie plusieurs noms de champs possibles"""
+    for key in keys:
+        if key in product and product[key] is not None:
+            return product[key]
+    return None
 
 
 @st.cache_data(ttl=1800)
@@ -82,20 +96,6 @@ def search_games(query: str, max_results: int = 8):
         return []
 
 
-def get_product_details(product_id: str):
-    """Récupère plus d'infos (notamment l'image si disponible)"""
-    url = "https://www.pricecharting.com/api/product"
-    params = {"t": PRICECHARTING_TOKEN, "id": product_id}
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        if data.get("status") == "success":
-            return data
-    except:
-        pass
-    return {}
-
-
 def make_links(title: str, console: str = ""):
     q = quote_plus(f"{title} {console}".strip())
     q_simple = quote_plus(title)
@@ -104,6 +104,7 @@ def make_links(title: str, console: str = ""):
         "leboncoin": f"https://www.leboncoin.fr/recherche?text={q_simple}&category=43",
         "ebay_fr": f"https://www.ebay.fr/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1",
         "ebay_us": f"https://www.ebay.com/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1",
+        "pc": f"https://www.pricecharting.com/search-products?q={q_simple}&type=prices"
     }
 
 
@@ -111,83 +112,78 @@ def make_links(title: str, console: str = ""):
 # Interface
 # ======================
 st.title("🎮 Game Price Tool")
-st.caption("Prix Loose / CIB / New en € • API PriceCharting")
+st.caption("Loose & CIB en euros • API PriceCharting")
 
 query = st.text_input(
-    "Titre + console",
+    "Recherche",
     placeholder="Ex: Kirby Dream Land Game Boy",
     label_visibility="collapsed"
 )
 
-col_btn1, col_btn2 = st.columns([3, 1])
-with col_btn1:
+col1, col2 = st.columns([3, 1])
+with col1:
     search = st.button("Chercher", type="primary", use_container_width=True)
-with col_btn2:
-    max_results = st.selectbox("Nb", [4, 6, 8, 10], index=1, label_visibility="collapsed")
+with col2:
+    max_results = st.selectbox("Résultats", [5, 8, 10], index=0, label_visibility="collapsed")
 
 if search and query.strip():
-    with st.spinner("Recherche..."):
+    with st.spinner("Recherche en cours..."):
         results = search_games(query.strip(), max_results=max_results)
 
     if not results:
-        st.warning("Aucun résultat. Essaie avec le nom + console.")
+        st.warning("Aucun résultat trouvé. Ajoute la console (ex: Game Boy, SNES, PS1).")
     else:
         rate = get_eur_rate()
         st.success(f"{len(results)} résultat(s)")
 
         for product in results:
-            title = product.get("product-name") or product.get("product_name") or "Sans titre"
-            console = product.get("console-name") or product.get("console_name") or ""
+            title = get_price(product, "product-name", "product_name") or "Sans titre"
+            console = get_price(product, "console-name", "console_name") or ""
             product_id = str(product.get("id", ""))
 
-            loose = cents_to_eur(product.get("loose-price") or product.get("loose_price"), rate)
-            cib = cents_to_eur(product.get("cib-price") or product.get("cib_price"), rate)
-            new = cents_to_eur(product.get("new-price") or product.get("new_price"), rate)
+            loose_raw = get_price(product, "loose-price", "loose_price", "used-price")
+            cib_raw = get_price(product, "cib-price", "cib_price", "complete-price")
 
-            # Essayer de récupérer plus d'infos (image)
-            details = get_product_details(product_id) if product_id else {}
-            image_url = details.get("image") or details.get("image-url") or details.get("cover")
+            loose = cents_to_eur(loose_raw, rate)
+            cib = cents_to_eur(cib_raw, rate)
 
-            # Carte du jeu
-            with st.container():
-                st.markdown(f"### {title}")
-                if console:
-                    st.caption(f"{console}")
+            # Carte
+            st.markdown(f"""
+            <div class="game-card">
+                <h3 style="margin:0 0 2px 0;">{title}</h3>
+                <div style="color:#888; font-size:0.9rem; margin-bottom:12px;">{console}</div>
+            """, unsafe_allow_html=True)
 
-                # Photo + Prix
-                img_col, price_col = st.columns([1, 2])
+            # Prix Loose + CIB
+            p1, p2 = st.columns(2)
+            with p1:
+                st.markdown(f"""
+                <div class="price-box">
+                    <div class="price-label">LOOSE</div>
+                    <div class="price-value">{f"{loose} €" if loose is not None else "—"}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            with p2:
+                st.markdown(f"""
+                <div class="price-box">
+                    <div class="price-label">CIB</div>
+                    <div class="price-value">{f"{cib} €" if cib is not None else "—"}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-                with img_col:
-                    if image_url:
-                        st.image(image_url, use_container_width=True)
-                    else:
-                        # Image de secours via le lien PriceCharting
-                        st.markdown(
-                            f"<div style='background:#222;height:140px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#666;font-size:13px;'>Pas d'image</div>",
-                            unsafe_allow_html=True
-                        )
+            # Liens
+            links = make_links(title, console)
+            st.markdown(
+                f"<div style='margin-top:12px; font-size:0.9rem;'>"
+                f"<a href='{links['pc']}' target='_blank'>PriceCharting</a> · "
+                f"<a href='{links['vinted']}' target='_blank'>Vinted</a> · "
+                f"<a href='{links['leboncoin']}' target='_blank'>Leboncoin</a> · "
+                f"<a href='{links['ebay_fr']}' target='_blank'>eBay FR</a>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
-                with price_col:
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Loose", f"{loose} €" if loose is not None else "—")
-                    c2.metric("CIB", f"{cib} €" if cib is not None else "—")
-                    c3.metric("New", f"{new} €" if new is not None else "—")
+            st.markdown("</div>", unsafe_allow_html=True)
+            st.write("")  # petit espace
 
-                    if product_id:
-                        st.markdown(f"[Voir sur PriceCharting ↗](https://www.pricecharting.com/game/{product_id})")
-
-                # Liens marketplace
-                links = make_links(title, console)
-                st.markdown(
-                    f"<div style='font-size:14px; margin-top:8px;'>"
-                    f"<a href='{links['vinted']}' target='_blank'>Vinted</a> · "
-                    f"<a href='{links['leboncoin']}' target='_blank'>Leboncoin</a> · "
-                    f"<a href='{links['ebay_fr']}' target='_blank'>eBay FR</a> · "
-                    f"<a href='{links['ebay_us']}' target='_blank'>eBay US</a>"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
-
-                st.divider()
-
-st.caption("API PriceCharting • Prix convertis en € • Usage personnel")
+st.caption("API PriceCharting • Prix convertis en €")
