@@ -1,5 +1,6 @@
 """
-Game Price Tool - Version API officielle PriceCharting
+Game Price Tool - Version API PriceCharting
+Interface mobile-friendly + photos
 """
 
 import streamlit as st
@@ -7,16 +8,46 @@ import requests
 from urllib.parse import quote_plus
 
 # ======================
-# TON TOKEN PRICECHARTING
+# TOKEN
 # ======================
 PRICECHARTING_TOKEN = "5efe3fca0235950767def78da9d234cea9dbf13d"
 
 st.set_page_config(
     page_title="Game Price Tool 🎮",
     page_icon="🎮",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered",          # mieux pour mobile
+    initial_sidebar_state="collapsed"
 )
+
+# CSS pour rendre l'interface plus propre sur téléphone
+st.markdown("""
+<style>
+    .stMetric {
+        background-color: #1e1e1e;
+        padding: 12px 8px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    .stMetric label {
+        font-size: 0.85rem !important;
+    }
+    .stMetric [data-testid="stMetricValue"] {
+        font-size: 1.3rem !important;
+        font-weight: 700;
+    }
+    div[data-testid="stVerticalBlock"] > div {
+        gap: 0.6rem;
+    }
+    .game-card {
+        border: 1px solid #333;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+        background: #161616;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 @st.cache_data(ttl=3600)
 def get_eur_rate():
@@ -28,44 +59,48 @@ def get_eur_rate():
 
 
 def cents_to_eur(cents, rate):
-    """PriceCharting renvoie les prix en centimes de dollar"""
     if cents is None:
         return None
     try:
-        usd = float(cents) / 100
-        return round(usd * rate, 2)
+        return round(float(cents) / 100 * rate, 2)
     except:
         return None
 
 
 @st.cache_data(ttl=1800)
 def search_games(query: str, max_results: int = 8):
-    """Recherche via l'API officielle PriceCharting"""
     url = "https://www.pricecharting.com/api/products"
-    params = {
-        "t": PRICECHARTING_TOKEN,
-        "q": query
-    }
+    params = {"t": PRICECHARTING_TOKEN, "q": query}
     try:
         r = requests.get(url, params=params, timeout=15)
         data = r.json()
-
         if data.get("status") != "success":
             return []
-
-        products = data.get("products", [])
-        return products[:max_results]
+        return data.get("products", [])[:max_results]
     except Exception as e:
         st.error(f"Erreur API : {e}")
         return []
+
+
+def get_product_details(product_id: str):
+    """Récupère plus d'infos (notamment l'image si disponible)"""
+    url = "https://www.pricecharting.com/api/product"
+    params = {"t": PRICECHARTING_TOKEN, "id": product_id}
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        data = r.json()
+        if data.get("status") == "success":
+            return data
+    except:
+        pass
+    return {}
 
 
 def make_links(title: str, console: str = ""):
     q = quote_plus(f"{title} {console}".strip())
     q_simple = quote_plus(title)
     return {
-        "pricecharting": f"https://www.pricecharting.com/search-products?q={q_simple}&type=prices",
-        "vinted": f"https://www.vinted.fr/catalog?search_text={q_simple}&order=relevance",
+        "vinted": f"https://www.vinted.fr/catalog?search_text={q_simple}",
         "leboncoin": f"https://www.leboncoin.fr/recherche?text={q_simple}&category=43",
         "ebay_fr": f"https://www.ebay.fr/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1",
         "ebay_us": f"https://www.ebay.com/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1",
@@ -76,76 +111,83 @@ def make_links(title: str, console: str = ""):
 # Interface
 # ======================
 st.title("🎮 Game Price Tool")
-st.caption("Version API officielle PriceCharting • Prix Loose / CIB / New en €")
-
-with st.sidebar:
-    st.header("Options")
-    max_results = st.slider("Nombre de résultats", 3, 12, 6)
-    st.markdown("---")
-    rate = get_eur_rate()
-    st.metric("Taux USD → EUR", f"{rate:.4f}")
-    st.caption("Token PriceCharting actif")
+st.caption("Prix Loose / CIB / New en € • API PriceCharting")
 
 query = st.text_input(
-    "Titre du jeu + console (recommandé)",
-    placeholder="Ex: Chrono Trigger SNES   ou   Kirby Dream Land Game Boy"
+    "Titre + console",
+    placeholder="Ex: Kirby Dream Land Game Boy",
+    label_visibility="collapsed"
 )
 
-if st.button("Chercher", type="primary") and query.strip():
-    with st.spinner("Recherche en cours via PriceCharting API..."):
+col_btn1, col_btn2 = st.columns([3, 1])
+with col_btn1:
+    search = st.button("Chercher", type="primary", use_container_width=True)
+with col_btn2:
+    max_results = st.selectbox("Nb", [4, 6, 8, 10], index=1, label_visibility="collapsed")
+
+if search and query.strip():
+    with st.spinner("Recherche..."):
         results = search_games(query.strip(), max_results=max_results)
 
     if not results:
-        st.warning("Aucun résultat trouvé. Essaie avec un titre plus précis + console.")
+        st.warning("Aucun résultat. Essaie avec le nom + console.")
     else:
         rate = get_eur_rate()
-        st.success(f"{len(results)} résultat(s) trouvé(s)")
+        st.success(f"{len(results)} résultat(s)")
 
         for product in results:
             title = product.get("product-name") or product.get("product_name") or "Sans titre"
             console = product.get("console-name") or product.get("console_name") or ""
-            loose_cents = product.get("loose-price") or product.get("loose_price")
-            cib_cents = product.get("cib-price") or product.get("cib_price")
-            new_cents = product.get("new-price") or product.get("new_price")
-            product_id = product.get("id")
+            product_id = str(product.get("id", ""))
 
-            loose_eur = cents_to_eur(loose_cents, rate)
-            cib_eur = cents_to_eur(cib_cents, rate)
-            new_eur = cents_to_eur(new_cents, rate)
+            loose = cents_to_eur(product.get("loose-price") or product.get("loose_price"), rate)
+            cib = cents_to_eur(product.get("cib-price") or product.get("cib_price"), rate)
+            new = cents_to_eur(product.get("new-price") or product.get("new_price"), rate)
 
-            # Lien vers la page du jeu
-            game_url = f"https://www.pricecharting.com/game/{product_id}" if product_id else None
+            # Essayer de récupérer plus d'infos (image)
+            details = get_product_details(product_id) if product_id else {}
+            image_url = details.get("image") or details.get("image-url") or details.get("cover")
 
-            with st.container(border=True):
-                col1, col2 = st.columns([3, 2])
+            # Carte du jeu
+            with st.container():
+                st.markdown(f"### {title}")
+                if console:
+                    st.caption(f"{console}")
 
-                with col1:
-                    st.subheader(title)
-                    if console:
-                        st.caption(f"Console : {console}")
-                    if game_url:
-                        st.markdown(f"[Voir sur PriceCharting ↗]({game_url})")
+                # Photo + Prix
+                img_col, price_col = st.columns([1, 2])
 
-                with col2:
+                with img_col:
+                    if image_url:
+                        st.image(image_url, use_container_width=True)
+                    else:
+                        # Image de secours via le lien PriceCharting
+                        st.markdown(
+                            f"<div style='background:#222;height:140px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#666;font-size:13px;'>Pas d'image</div>",
+                            unsafe_allow_html=True
+                        )
+
+                with price_col:
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("Loose", f"{loose_eur} €" if loose_eur is not None else "—")
-                    c2.metric("CIB", f"{cib_eur} €" if cib_eur is not None else "—")
-                    c3.metric("New", f"{new_eur} €" if new_eur is not None else "—")
+                    c1.metric("Loose", f"{loose} €" if loose is not None else "—")
+                    c2.metric("CIB", f"{cib} €" if cib is not None else "—")
+                    c3.metric("New", f"{new} €" if new is not None else "—")
+
+                    if product_id:
+                        st.markdown(f"[Voir sur PriceCharting ↗](https://www.pricecharting.com/game/{product_id})")
 
                 # Liens marketplace
                 links = make_links(title, console)
                 st.markdown(
-                    f"**Liens rapides :** "
-                    f"[Vinted]({links['vinted']}) · "
-                    f"[Leboncoin]({links['leboncoin']}) · "
-                    f"[eBay FR vendus]({links['ebay_fr']}) · "
-                    f"[eBay US vendus]({links['ebay_us']})"
+                    f"<div style='font-size:14px; margin-top:8px;'>"
+                    f"<a href='{links['vinted']}' target='_blank'>Vinted</a> · "
+                    f"<a href='{links['leboncoin']}' target='_blank'>Leboncoin</a> · "
+                    f"<a href='{links['ebay_fr']}' target='_blank'>eBay FR</a> · "
+                    f"<a href='{links['ebay_us']}' target='_blank'>eBay US</a>"
+                    f"</div>",
+                    unsafe_allow_html=True
                 )
 
-        st.caption(
-            "Prix fournis par l'API officielle PriceCharting (en USD puis convertis en €). "
-            "Les cotes PAL / marché français peuvent légèrement différer → vérifie eBay.fr."
-        )
+                st.divider()
 
-st.markdown("---")
-st.caption("Game Price Tool • API PriceCharting • Usage personnel")
+st.caption("API PriceCharting • Prix convertis en € • Usage personnel")
