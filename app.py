@@ -1,11 +1,11 @@
 """
-Game Price Tool - Version debug + interface propre
+Game Price Tool - Version corrigée (Loose + CIB)
 """
 
 import streamlit as st
 import requests
 from urllib.parse import quote_plus
-import json
+import time
 
 PRICECHARTING_TOKEN = "5efe3fca0235950767def78da9d234cea9dbf13d"
 
@@ -57,26 +57,35 @@ def cents_to_eur(value, rate):
         return None
 
 
-def find_price(product, possible_keys):
-    for key in possible_keys:
-        if key in product and product[key] is not None:
-            return product[key]
-    return None
-
-
 @st.cache_data(ttl=1800)
-def search_games(query: str, max_results: int = 8):
+def search_games(query: str, max_results: int = 6):
+    """1. Recherche rapide"""
     url = "https://www.pricecharting.com/api/products"
     params = {"t": PRICECHARTING_TOKEN, "q": query}
     try:
-        r = requests.get(url, params=params, timeout=15)
+        r = requests.get(url, params=params, timeout=12)
         data = r.json()
         if data.get("status") != "success":
             return []
         return data.get("products", [])[:max_results]
     except Exception as e:
-        st.error(f"Erreur API : {e}")
+        st.error(f"Erreur recherche : {e}")
         return []
+
+
+@st.cache_data(ttl=1800)
+def get_full_product(product_id: str):
+    """2. Récupère les détails complets (dont CIB)"""
+    url = "https://www.pricecharting.com/api/product"
+    params = {"t": PRICECHARTING_TOKEN, "id": product_id}
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        data = r.json()
+        if data.get("status") == "success":
+            return data
+    except:
+        pass
+    return {}
 
 
 def make_links(title: str, console: str = ""):
@@ -91,23 +100,21 @@ def make_links(title: str, console: str = ""):
 
 
 # ======================
-# UI
+# Interface
 # ======================
 st.title("🎮 Game Price Tool")
-st.caption("Loose + CIB • API PriceCharting")
+st.caption("Loose + CIB en € • API PriceCharting")
 
 query = st.text_input("Recherche", placeholder="Kirby Dream Land Game Boy", label_visibility="collapsed")
 
-c1, c2, c3 = st.columns([3, 1, 1])
+c1, c2 = st.columns([3, 1])
 with c1:
     search = st.button("Chercher", type="primary", use_container_width=True)
 with c2:
-    max_results = st.selectbox("Nb", [5, 8, 10], index=0, label_visibility="collapsed")
-with c3:
-    debug = st.checkbox("Debug", value=False)
+    max_results = st.selectbox("Nb", [4, 6, 8], index=1, label_visibility="collapsed")
 
 if search and query.strip():
-    with st.spinner("Recherche..."):
+    with st.spinner("Recherche + récupération des cotes CIB..."):
         results = search_games(query.strip(), max_results=max_results)
 
     if not results:
@@ -116,24 +123,17 @@ if search and query.strip():
         rate = get_eur_rate()
         st.success(f"{len(results)} résultat(s)")
 
-        # Debug : affiche les vrais champs du premier résultat
-        if debug and results:
-            st.write("**Champs reçus de l'API (premier résultat) :**")
-            st.json(results[0])
-
         for product in results:
-            title = find_price(product, ["product-name", "product_name"]) or "Sans titre"
-            console = find_price(product, ["console-name", "console_name"]) or ""
+            title = product.get("product-name") or "Sans titre"
+            console = product.get("console-name") or ""
             product_id = str(product.get("id", ""))
 
-            # On teste beaucoup de noms possibles pour Loose et CIB
-            loose_raw = find_price(product, [
-                "loose-price", "loose_price", "used-price", "used_price", "loose"
-            ])
-            cib_raw = find_price(product, [
-                "cib-price", "cib_price", "complete-price", "complete_price",
-                "cib", "complete", "box-price", "complete-in-box"
-            ])
+            # On récupère les détails complets pour avoir le CIB
+            details = get_full_product(product_id) if product_id else {}
+
+            # On prend les prix depuis les détails (plus complets)
+            loose_raw = details.get("loose-price") or product.get("loose-price")
+            cib_raw = details.get("cib-price")
 
             loose = cents_to_eur(loose_raw, rate)
             cib = cents_to_eur(cib_raw, rate)
