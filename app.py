@@ -1,10 +1,11 @@
 """
-Game Price Tool - Version propre (Loose + CIB)
+Game Price Tool - Version debug + interface propre
 """
 
 import streamlit as st
 import requests
 from urllib.parse import quote_plus
+import json
 
 PRICECHARTING_TOKEN = "5efe3fca0235950767def78da9d234cea9dbf13d"
 
@@ -15,42 +16,25 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Style propre
 st.markdown("""
 <style>
-    .block-container {
-        padding-top: 1.5rem;
-        padding-bottom: 2rem;
-        max-width: 640px;
-    }
-    h3 {
-        margin-bottom: 0.2rem !important;
-        font-size: 1.25rem !important;
+    .block-container { max-width: 640px; padding-top: 1.2rem; }
+    .game-card {
+        background: #161616;
+        border: 1px solid #2c2c2c;
+        border-radius: 14px;
+        padding: 18px 16px;
+        margin-bottom: 16px;
     }
     .price-box {
-        background: #1c1c1c;
+        background: #1f1f1f;
         border-radius: 10px;
-        padding: 14px 10px;
+        padding: 14px 8px;
         text-align: center;
         border: 1px solid #333;
     }
-    .price-label {
-        font-size: 0.8rem;
-        color: #aaa;
-        margin-bottom: 4px;
-    }
-    .price-value {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: #fff;
-    }
-    .game-card {
-        background: #161616;
-        border: 1px solid #2a2a2a;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 14px;
-    }
+    .price-label { font-size: 0.78rem; color: #999; margin-bottom: 6px; letter-spacing: 0.5px; }
+    .price-value { font-size: 1.45rem; font-weight: 700; color: #fff; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -73,9 +57,8 @@ def cents_to_eur(value, rate):
         return None
 
 
-def get_price(product, *keys):
-    """Essaie plusieurs noms de champs possibles"""
-    for key in keys:
+def find_price(product, possible_keys):
+    for key in possible_keys:
         if key in product and product[key] is not None:
             return product[key]
     return None
@@ -100,49 +83,57 @@ def make_links(title: str, console: str = ""):
     q = quote_plus(f"{title} {console}".strip())
     q_simple = quote_plus(title)
     return {
+        "pc": f"https://www.pricecharting.com/search-products?q={q_simple}&type=prices",
         "vinted": f"https://www.vinted.fr/catalog?search_text={q_simple}",
         "leboncoin": f"https://www.leboncoin.fr/recherche?text={q_simple}&category=43",
         "ebay_fr": f"https://www.ebay.fr/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1",
-        "ebay_us": f"https://www.ebay.com/sch/i.html?_nkw={q}&LH_Sold=1&LH_Complete=1",
-        "pc": f"https://www.pricecharting.com/search-products?q={q_simple}&type=prices"
     }
 
 
 # ======================
-# Interface
+# UI
 # ======================
 st.title("🎮 Game Price Tool")
-st.caption("Loose & CIB en euros • API PriceCharting")
+st.caption("Loose + CIB • API PriceCharting")
 
-query = st.text_input(
-    "Recherche",
-    placeholder="Ex: Kirby Dream Land Game Boy",
-    label_visibility="collapsed"
-)
+query = st.text_input("Recherche", placeholder="Kirby Dream Land Game Boy", label_visibility="collapsed")
 
-col1, col2 = st.columns([3, 1])
-with col1:
+c1, c2, c3 = st.columns([3, 1, 1])
+with c1:
     search = st.button("Chercher", type="primary", use_container_width=True)
-with col2:
-    max_results = st.selectbox("Résultats", [5, 8, 10], index=0, label_visibility="collapsed")
+with c2:
+    max_results = st.selectbox("Nb", [5, 8, 10], index=0, label_visibility="collapsed")
+with c3:
+    debug = st.checkbox("Debug", value=False)
 
 if search and query.strip():
-    with st.spinner("Recherche en cours..."):
+    with st.spinner("Recherche..."):
         results = search_games(query.strip(), max_results=max_results)
 
     if not results:
-        st.warning("Aucun résultat trouvé. Ajoute la console (ex: Game Boy, SNES, PS1).")
+        st.warning("Aucun résultat. Ajoute la console.")
     else:
         rate = get_eur_rate()
         st.success(f"{len(results)} résultat(s)")
 
+        # Debug : affiche les vrais champs du premier résultat
+        if debug and results:
+            st.write("**Champs reçus de l'API (premier résultat) :**")
+            st.json(results[0])
+
         for product in results:
-            title = get_price(product, "product-name", "product_name") or "Sans titre"
-            console = get_price(product, "console-name", "console_name") or ""
+            title = find_price(product, ["product-name", "product_name"]) or "Sans titre"
+            console = find_price(product, ["console-name", "console_name"]) or ""
             product_id = str(product.get("id", ""))
 
-            loose_raw = get_price(product, "loose-price", "loose_price", "used-price")
-            cib_raw = get_price(product, "cib-price", "cib_price", "complete-price")
+            # On teste beaucoup de noms possibles pour Loose et CIB
+            loose_raw = find_price(product, [
+                "loose-price", "loose_price", "used-price", "used_price", "loose"
+            ])
+            cib_raw = find_price(product, [
+                "cib-price", "cib_price", "complete-price", "complete_price",
+                "cib", "complete", "box-price", "complete-in-box"
+            ])
 
             loose = cents_to_eur(loose_raw, rate)
             cib = cents_to_eur(cib_raw, rate)
@@ -150,11 +141,10 @@ if search and query.strip():
             # Carte
             st.markdown(f"""
             <div class="game-card">
-                <h3 style="margin:0 0 2px 0;">{title}</h3>
-                <div style="color:#888; font-size:0.9rem; margin-bottom:12px;">{console}</div>
+                <div style="font-size:1.15rem; font-weight:600; margin-bottom:2px;">{title}</div>
+                <div style="color:#888; font-size:0.88rem; margin-bottom:14px;">{console}</div>
             """, unsafe_allow_html=True)
 
-            # Prix Loose + CIB
             p1, p2 = st.columns(2)
             with p1:
                 st.markdown(f"""
@@ -171,19 +161,15 @@ if search and query.strip():
                 </div>
                 """, unsafe_allow_html=True)
 
-            # Liens
             links = make_links(title, console)
             st.markdown(
-                f"<div style='margin-top:12px; font-size:0.9rem;'>"
+                f"<div style='margin-top:13px; font-size:0.88rem;'>"
                 f"<a href='{links['pc']}' target='_blank'>PriceCharting</a> · "
                 f"<a href='{links['vinted']}' target='_blank'>Vinted</a> · "
                 f"<a href='{links['leboncoin']}' target='_blank'>Leboncoin</a> · "
                 f"<a href='{links['ebay_fr']}' target='_blank'>eBay FR</a>"
-                f"</div>",
+                f"</div></div>",
                 unsafe_allow_html=True
             )
-
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.write("")  # petit espace
 
 st.caption("API PriceCharting • Prix convertis en €")
